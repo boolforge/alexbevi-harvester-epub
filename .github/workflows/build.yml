@@ -16,6 +16,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 concurrency:
   group: "pages"
@@ -40,10 +41,39 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Build the EPUB
-        run: python -m harvester_epub.main -o "${{ github.workspace }}/dist/reverse-engineering-harvester-with-ghidra-and-codex.epub" -v
+        id: build
+        run: |
+          set +e
+          python -m harvester_epub.main -o "${{ github.workspace }}/dist/reverse-engineering-harvester-with-ghidra-and-codex.epub" -v 2>&1 | tee /tmp/build.log
+          exit_code=${PIPESTATUS[0]}
+          exit $exit_code
         working-directory: src
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report failure diagnostics
+        if: failure()
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, urllib.request
+          log = open('/tmp/build.log', errors='replace').read()[-5000:]
+          body = f"Automated diagnostic for run {os.environ['RUN_ID']}.\n\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues",
+              data=json.dumps({"title": f"CI failure: run {os.environ['RUN_ID']}", "body": body}).encode(),
+              headers={
+                  "Authorization": f"token {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req)
+          PYEOF
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assemble Pages site
         run: |
