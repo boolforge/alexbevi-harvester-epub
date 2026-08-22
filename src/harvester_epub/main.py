@@ -147,6 +147,9 @@ def run(output_path: str, run_epubcheck: bool, work_dir: Path) -> int:
     log.info("Source commit: %s", source_commit or "unavailable")
 
     log.info("=== Assembling EPUB ===")
+    output_dir = Path(output_path).parent
+    if str(output_dir) not in ("", "."):
+        output_dir.mkdir(parents=True, exist_ok=True)
     epub_build.assemble_and_write(
         chapters, prepared_images_by_chapter, prepared_videos_by_chapter,
         source_commit, stats, output_path,

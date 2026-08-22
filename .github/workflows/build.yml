@@ -40,6 +40,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Prepare output directory
+        run: mkdir -p dist
+
       - name: Build the EPUB
         id: build
         run: |
@@ -77,7 +80,6 @@ jobs:
 
       - name: Assemble Pages site
         run: |
-          mkdir -p dist
           cp site/index.html dist/index.html
           python3 -c "
           import sys; sys.path.insert(0, 'src')
