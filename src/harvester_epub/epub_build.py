@@ -219,9 +219,24 @@ def wire_media_into_chapter(
     return soup.decode() if soup.contents else html_fragment
 
 
+_MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _format_date_en(date: datetime) -> str:
+    # Deliberately not strftime("%B ...") here: %B is locale-dependent, and
+    # this build has no control over the locale of whatever machine runs it
+    # (a contributor's laptop, a CI runner with a different default image).
+    # A hardcoded English month name is one line; a silently Spanish (or
+    # anything-else) date on some future run is a much worse bug to chase.
+    return f"{_MONTH_NAMES[date.month - 1]} {date.day}, {date.year}"
+
+
 def _chapter_meta_html(ch: Chapter) -> str:
     parts = [f'<span class="eyebrow">0x0{ch.index} // Field Log</span>']
-    meta_bits = [ch.date.strftime("%B %-d, %Y") if hasattr(ch.date, "strftime") else str(ch.date)]
+    meta_bits = [_format_date_en(ch.date)]
     if ch.reading_minutes:
         meta_bits.append(f"{ch.reading_minutes} min read")
     if ch.tags:
@@ -233,37 +248,36 @@ def _chapter_meta_html(ch: Chapter) -> str:
 def build_prologue_xhtml(source_commit: str | None) -> str:
     n = len(config.POST_FILENAMES)
     return f"""
-<h1>Prologo y atribucion</h1>
-<p class="eyebrow">Nota del compilador</p>
-<p>Este libro reune, en un unico volumen offline, los {n} articulos de la serie
-<em>&ldquo;{config.BOOK_TITLE}&rdquo;</em>, publicados originalmente por
-<strong>{config.BOOK_AUTHOR}</strong> (<code>{config.BOOK_AUTHOR_HANDLE}</code>) en su blog personal.
-El texto no ha sido alterado ni corregido: se conserva tal cual fue escrito, incluidas
-sus imperfecciones. Lo unico anadido es el formato: portada, indice, notas al pie de
-cada capitulo y un colofon con la procedencia exacta de cada fuente.</p>
+<h1>Foreword and Attribution</h1>
+<p class="eyebrow">A note from the compiler</p>
+<p>This book gathers, into a single offline volume, the {n} posts of the series
+<em>&ldquo;{config.BOOK_TITLE}&rdquo;</em>, originally published by
+<strong>{config.BOOK_AUTHOR}</strong> (<code>{config.BOOK_AUTHOR_HANDLE}</code>) on his personal blog.
+The text has not been altered or corrected: it is preserved exactly as written, imperfections
+included. The only thing added is the packaging &mdash; a cover, a table of contents, a short
+note under each chapter heading, and a colophon with the exact provenance of every source.</p>
 
 <div class="attribution-box">
-<p><strong>Autor original:</strong> {config.BOOK_AUTHOR} (<code>{config.BOOK_AUTHOR_HANDLE}</code>)<br/>
-<strong>Fuente:</strong> <a href="{config.BOOK_AUTHOR_URL}">{config.BOOK_AUTHOR_URL}</a><br/>
-<strong>Licencia:</strong> <a href="{config.LICENSE_URL}">{config.LICENSE_NAME}</a> &mdash;
-se permite copiar, redistribuir y adaptar el contenido, incluso con fines comerciales,
-citando la autoria. Este volumen es precisamente ese tipo de adaptacion: un
-reformateo para lectura offline, sin cambios en el texto ni en las ideas originales.</p>
+<p><strong>Original author:</strong> {config.BOOK_AUTHOR} (<code>{config.BOOK_AUTHOR_HANDLE}</code>)<br/>
+<strong>Source:</strong> <a href="{config.BOOK_AUTHOR_URL}">{config.BOOK_AUTHOR_URL}</a><br/>
+<strong>License:</strong> <a href="{config.LICENSE_URL}">{config.LICENSE_NAME}</a> &mdash;
+permits copying, redistributing, and adapting this content, even commercially, as long as
+authorship is credited. This volume is exactly that kind of adaptation: a reformatting for
+offline reading, with no change to the text or the ideas it contains.</p>
 </div>
 
-<p>Esta es una compilacion no oficial, hecha por un lector, sin ninguna afiliacion
-con el autor. Si el autor preferiese que esta compilacion no circulase en esta forma,
-basta con abrir un issue en el repositorio del proyecto para retirarla.</p>
+<p>This is an unofficial compilation, made by a reader, with no affiliation to the author.
+If the author would rather this compilation not circulate in this form, opening an issue on
+the project's repository is enough to have it taken down.</p>
 
 <hr class="hex-rule"/>
 
-<p><em>In English: this book compiles Alex Bevilacqua's {n}-part
-&ldquo;{config.BOOK_TITLE}&rdquo; series into a single offline EPUB, text unchanged,
-under the terms of the original {config.LICENSE_NAME} license
-(<a href="{config.LICENSE_URL}">{config.LICENSE_URL}</a>). It is an unofficial,
-reader-made compilation with no affiliation to the author. Read the originals
-and follow the author's ongoing work at
-<a href="{config.BOOK_AUTHOR_URL}">{config.BOOK_AUTHOR_URL}</a>.</em></p>
+<p class="eyebrow">Cover note</p>
+<p>The cover incorporates a screenshot of the original 1996 game <em>Harvester</em>'s own
+title card, captured during the reverse-engineering work this book documents. <em>Harvester</em>
+and its assets remain the property of their respective rights holders; the image is used here
+for identification, in the same spirit the source series itself uses it &mdash; illustrating
+the subject of a technical analysis, not standing in as official packaging.</p>
 """.strip()
 
 
@@ -281,24 +295,24 @@ def build_colophon_xhtml(chapters: list[Chapter], source_commit: str | None, sta
         else "unavailable at build time"
     )
     return f"""
-<h1>Colofon</h1>
-<p class="eyebrow">Procedencia / Provenance</p>
-<p>Generado el {build_date} con
+<h1>Colophon</h1>
+<p class="eyebrow">Provenance</p>
+<p>Generated on {build_date} with
 <a href="{config.REPO_URL}">{config.REPO_URL.rsplit('/', 2)[-2]}/{config.REPO_URL.rsplit('/', 1)[-1]}</a>,
-a partir del commit <code>{commit_line}</code> del repositorio fuente
+from commit <code>{commit_line}</code> of the source repository
 <code>{config.SOURCE_OWNER}/{config.SOURCE_REPO}</code>.</p>
 
 <div class="table-wrapper">
 <table>
-<thead><tr><th>#</th><th>Capitulo</th><th>URL original</th></tr></thead>
+<thead><tr><th>#</th><th>Chapter</th><th>Original URL</th></tr></thead>
 <tbody>
 {rows}
 </tbody>
 </table>
 </div>
 
-<p class="eyebrow">Tipografia</p>
-<p>IBM Plex Serif &amp; IBM Plex Mono, IBM Corporation, licencia SIL Open Font License 1.1.</p>
+<p class="eyebrow">Typography</p>
+<p>IBM Plex Serif &amp; IBM Plex Mono, IBM Corporation, SIL Open Font License 1.1.</p>
 
 <p class="eyebrow">Build stats</p>
 <p>Images embedded: {stats.images_embedded} &middot; failed: {stats.images_failed} &middot;
@@ -359,7 +373,7 @@ def assemble_and_write(
     book.get_item_with_id("cover").is_linear = True
 
     prologue = epub.EpubHtml(
-        title="Prologo y atribucion", file_name="prologue.xhtml", lang="es",
+        title="Foreword and Attribution", file_name="prologue.xhtml", lang=config.BOOK_LANGUAGE,
     )
     prologue.content = build_prologue_xhtml(source_commit)
     prologue.add_item(css)
@@ -402,15 +416,15 @@ def assemble_and_write(
                     )
                 )
 
-    colophon = epub.EpubHtml(title="Colofon", file_name="colophon.xhtml", lang="es")
+    colophon = epub.EpubHtml(title="Colophon", file_name="colophon.xhtml", lang=config.BOOK_LANGUAGE)
     colophon.content = build_colophon_xhtml(chapters, source_commit, stats)
     colophon.add_item(css)
     book.add_item(colophon)
 
     book.toc = (
-        epub.Link("prologue.xhtml", "Prologo y atribucion", "prologue"),
+        epub.Link("prologue.xhtml", "Foreword and Attribution", "prologue"),
         (epub.Section(config.BOOK_TITLE), tuple(chapter_items)),
-        epub.Link("colophon.xhtml", "Colofon", "colophon"),
+        epub.Link("colophon.xhtml", "Colophon", "colophon"),
     )
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())

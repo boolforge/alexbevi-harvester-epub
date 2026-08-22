@@ -68,6 +68,15 @@ PALETTE = {
 
 PYGMENTS_STYLE = "monokai"
 
+# Cover art: two real images from the series, chosen after reviewing all
+# 26 embedded figures. bm-pal.png is the game's own "HARVESTER" title card,
+# the single most striking and immediately recognizable image in the whole
+# series; ghidra-exe-extended.png is a real disassembly/strings view from
+# the author's own Ghidra session, used as a thin "data layer" between the
+# game-art band and the book's own typography. See media.build_cover().
+COVER_HERO_IMAGE = "/images/ghidra3/bm-pal.png"
+COVER_DATA_STRIP_IMAGE = "/images/ghidra1/ghidra-exe-extended.png"
+
 FONT_DIR = "/usr/share/fonts/truetype"
 FONTS = {
     "serif": f"{FONT_DIR}/ibm-plex/IBMPlexSerif-Regular.ttf",

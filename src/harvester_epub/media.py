@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from . import config
 from .source import SourceError, fetch_asset
@@ -180,19 +180,145 @@ CHAPTER_LABELS = [
 
 def build_cover(width: int = 1600, height: int = 2400) -> bytes:
     """
-    Generate cover art in the book's own visual language rather than reuse
-    the blog's repeated banner image (identical across all 7 posts, so it
-    carries no real "this is the book" identity) or a stock template.
+    Generate cover art anchored on real images from the series rather than
+    an abstract approximation of "technical." After reviewing all 26
+    embedded figures, two stood out: the game's own "HARVESTER" title card
+    (its single most striking, immediately recognizable image) and a real
+    Ghidra strings/disassembly view from the author's own session. The
+    composite reads top to bottom the way the series itself unfolds: the
+    game's surface, a strip of the raw data underneath it, then this book's
+    own framing in typography.
 
-    Design: a faint full-height hex-dump texture -- a real structural motif
-    from the subject matter (disassembly listings), not decoration for its
-    own sake -- title set in IBM Plex Mono to read as "field notes," a
-    compact manifest of the seven parts standing in for conventional cover
-    copy, and a teal/amber two-color accent system instead of a single
-    neon-on-black terminal cliche. Layout runs off an accumulating y cursor
-    rather than independent fractions of the canvas, so sections can't
-    silently overlap or leave dead space as text is added or trimmed.
+    Falls back to a purely generated abstract cover (hex-dump texture, no
+    photographic source) if either source image can't be fetched -- cover
+    art is worth doing well, not worth failing the whole build over.
     """
+    try:
+        return _build_composite_cover(width, height)
+    except Exception as exc:
+        log.warning("Composite cover failed (%s); falling back to abstract design", exc)
+        return _build_abstract_cover(width, height)
+
+
+def _build_composite_cover(width: int, height: int) -> bytes:
+    from .source import fetch_asset
+
+    hero = Image.open(io.BytesIO(fetch_asset(config.COVER_HERO_IMAGE))).convert("RGB")
+
+    bg = _hex(config.PALETTE["bg"])
+    img = Image.new("RGB", (width, height), bg)
+
+    # Hero band: the game's own title card, scaled to fill the width, with
+    # a mild contrast/saturation lift so it stays punchy after a >2x
+    # upscale from a 640x480 source, dissolving into the dark zone below
+    # over a generous span rather than a hard cut.
+    hero_w = width
+    hero_h = round(hero.height * (width / hero.width))
+    hero_scaled = hero.resize((hero_w, hero_h), Image.LANCZOS)
+    hero_scaled = ImageEnhance.Contrast(hero_scaled).enhance(1.08)
+    hero_scaled = ImageEnhance.Color(hero_scaled).enhance(1.12)
+    img.paste(hero_scaled, (0, 0))
+    fade_end = int(hero_h * 0.76)
+    img = _fade_bottom(img, fade_start_y=int(hero_h * 0.40), fade_end_y=fade_end, bg_color=bg)
+
+    # The dark zone below carries the same faint hex-dump wash as the
+    # abstract fallback design -- a real structural motif from the subject
+    # matter, used here as connective texture rather than a second,
+    # competing photograph.
+    _apply_hexdump_wash(img, top=fade_end, bottom=height, alpha=16)
+
+    draw = ImageDraw.Draw(img)
+    ink, ink_muted = _hex(config.PALETTE["ink"]), _hex(config.PALETTE["ink_muted"])
+    amber, teal, rule = _hex(config.PALETTE["amber"]), _hex(config.PALETTE["teal"]), _hex(config.PALETTE["rule"])
+    margin = int(width * 0.09)
+
+    mono_bold = ImageFont.truetype(config.FONTS["mono_bold"], int(width * 0.052))
+    mono = ImageFont.truetype(config.FONTS["mono"], int(width * 0.026))
+    mono_small = ImageFont.truetype(config.FONTS["mono"], int(width * 0.0225))
+    mono_medium = ImageFont.truetype(config.FONTS["mono_medium"], int(width * 0.030))
+    serif_italic = ImageFont.truetype(config.FONTS["serif_italic"], int(width * 0.030))
+
+    y = fade_end + int(width * 0.045)
+    draw.text((margin, y), "0x00 // FIELD LOG", font=mono, fill=teal)
+    y += int(width * 0.05)
+
+    for line in _wrap_text(draw, "Reverse Engineering", mono_bold, width - 2 * margin):
+        draw.text((margin, y), line, font=mono_bold, fill=ink)
+        y += int(width * 0.062)
+    y += int(width * 0.006)
+    draw.text((margin, y), "with Ghidra and Codex", font=mono_medium, fill=amber)
+    y += int(width * 0.07)
+
+    draw.line((margin, y, width - margin, y), fill=rule, width=1)
+    y += int(width * 0.04)
+
+    for i, label in enumerate(CHAPTER_LABELS, start=1):
+        draw.text((margin, y), f"0x{i:02d}", font=mono_small, fill=teal)
+        draw.text((margin + int(width * 0.075), y), label, font=mono_small, fill=ink_muted)
+        y += int(width * 0.0445)
+
+    footer_y = height - int(height * 0.075)
+    draw.line((margin, footer_y - int(width * 0.03), width - margin, footer_y - int(width * 0.03)), fill=rule, width=1)
+    draw.text((margin, footer_y), "A Seven-Part Field Log", font=serif_italic, fill=ink_muted)
+    draw.text((margin, footer_y + int(width * 0.044)), "Alex Bevilacqua", font=mono_medium, fill=ink)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _apply_hexdump_wash(img: Image.Image, top: int, bottom: int, alpha: int) -> None:
+    """Low-alpha hex-offset texture over img[top:bottom], drawn in place."""
+    width = img.width
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = ImageFont.truetype(config.FONTS["mono"], int(width * 0.018))
+    rule = _hex(config.PALETTE["rule"])
+    row_h = int(img.height * 0.026)
+    addr = 0x4010
+    y = top + int(row_h * 0.6)
+    while y < bottom:
+        chunk = " ".join(f"{(addr + k * 4) & 0xFFFF:04X}" for k in range(10))
+        draw.text((int(width * 0.09), y), chunk, font=font, fill=(*rule, alpha))
+        addr += 0x40
+        y += row_h
+    composited = Image.alpha_composite(img.convert("RGBA"), overlay)
+    img.paste(composited.convert("RGB"), (0, 0))
+
+
+def _fade_bottom(img: Image.Image, fade_start_y: int, fade_end_y: int, bg_color: tuple) -> Image.Image:
+    """Alpha-blend img's rows from fade_start_y..fade_end_y into bg_color for a smooth dissolve."""
+    w, h = img.size
+    rgba = img.convert("RGBA")
+    overlay = Image.new("RGBA", (w, h), (*bg_color, 0))
+    draw = ImageDraw.Draw(overlay)
+    span = max(1, fade_end_y - fade_start_y)
+    for y in range(fade_start_y, min(fade_end_y + 1, h)):
+        alpha = int(255 * ((y - fade_start_y) / span) ** 1.4)
+        draw.line((0, y, w, y), fill=(*bg_color, alpha))
+    if fade_end_y < h:
+        draw.rectangle((0, fade_end_y, w, h), fill=(*bg_color, 255))
+    return Image.alpha_composite(rgba, overlay).convert("RGB")
+
+
+def _duotone(img: Image.Image, shadow: str, highlight: str) -> Image.Image:
+    gray = img.convert("L")
+    s, hl = _hex(shadow), _hex(highlight)
+    lut_r = [int(s[0] + (hl[0] - s[0]) * i / 255) for i in range(256)]
+    lut_g = [int(s[1] + (hl[1] - s[1]) * i / 255) for i in range(256)]
+    lut_b = [int(s[2] + (hl[2] - s[2]) * i / 255) for i in range(256)]
+    r = gray.point(lut_r)
+    g = gray.point(lut_g)
+    b = gray.point(lut_b)
+    return Image.merge("RGB", (r, g, b))
+
+
+def _hairline(img: Image.Image, y: int, width: int, color: str) -> None:
+    ImageDraw.Draw(img).line((0, y, width, y), fill=_hex(color), width=2)
+
+
+def _build_abstract_cover(width: int, height: int) -> bytes:
+    """Fallback cover with no photographic source -- see build_cover()."""
     bg = _hex(config.PALETTE["bg"])
     img = Image.new("RGB", (width, height), bg)
     _draw_hexdump_texture(img, width, height)
