@@ -1,0 +1,79 @@
+name: Build EPUB and deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+  schedule:
+    # Monthly, in case the source series gets a correction or a new part.
+    # This is a personal archival tool re-reading a public blog it has no
+    # control over, so a periodic rebuild is the only way "the latest
+    # version of the source" and "the latest version of the book" stay in
+    # sync without someone remembering to click the button by hand.
+    - cron: "17 6 1 * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-ibm-plex fonts-jetbrains-mono
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the EPUB
+        run: python -m harvester_epub.main -o "${{ github.workspace }}/dist/reverse-engineering-harvester-with-ghidra-and-codex.epub" -v
+        working-directory: src
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble Pages site
+        run: |
+          mkdir -p dist
+          cp site/index.html dist/index.html
+          python3 -c "
+          import sys; sys.path.insert(0, 'src')
+          from harvester_epub import media
+          open('dist/cover.png', 'wb').write(media.build_cover())
+          "
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epub
+          path: dist/*.epub
+          retention-days: 90
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

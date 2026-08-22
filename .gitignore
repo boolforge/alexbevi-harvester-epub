@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.epub
+.epubcheck-cache/
+dist/
+.venv/
+*.egg-info/
+.DS_Store
